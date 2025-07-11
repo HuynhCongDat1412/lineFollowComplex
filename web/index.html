@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MY COOLEST CAR</title>
+    <style>
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            padding: 20px;
+            
+        }
+        .row{
+            display: flex;
+            margin: 10px 0 0 0;
+        }
+        .col{
+            flex: 1;            
+        }
+        .col-3 {
+            flex: 0 0 25%;
+        }
+        .col-6 {
+            flex: 0 0 50%;
+        }
+        .col-9 {
+            flex: 0 0 75%;
+        }
+
+    </style>
+</head>
+<body>
+    <h1>MY COOLEST CAR</h1>
+    <div>
+        <input type="text" id="wsServerIP" value="192.168.1.98">
+        <input type="button" id="wsConnectBtn" value="Connect WebSocket" onclick="initWebSocket()">
+    </div>
+    <div class="container">
+        <div  class="row">
+            <div class="col-6">
+                <label>Motor 1</label>
+                <input type="range" id="motor1_speed" min="0" max="100" value="0">
+                <span id="motor1_speedDisplay">0</span>
+            </div>
+            <div class="col-3">
+                <label for="motor_sync">Đồng bộ</label>
+                <input type="checkbox" id="motor_sync" checked>
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <label>Motor 2</label>
+                <input type="range" id="motor2_speed" min="0" max="100" value="0">
+                <span id="motor2_speedDisplay">0</span>
+            </div>
+        </div>
+        <div class="row">
+            <input type="button" id="motor_runBtn" value="STOP" onclick="btn_motorRun()">
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <label for="Kp">Kp</label>
+                <input id="Kp" type="text" value="0">
+                <input type="button" style="margin: 0 0px 0 20px;"  id="Kp_up" value="+">
+                <input type="button" style="margin: 0 0px 0 0px;"  id="Kp_down" value="-">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <label for="Ki">Ki</label>
+                <input id="Ki" type="text" value="0">
+                <input type="button" style="margin: 0 0px 0 20px;"  id="Ki_up"  value="+">
+                <input type="button" style="margin: 0 0px 0 0px;"  id="Ki_down" value="-">
+
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <label for="Kd">Kd</label>
+                <input id="Kd" type="text" value="0">
+                 <input type="button" style="margin: 0 0px 0 20px;"  id="Kd_up" value="+">
+                <input type="button" style="margin: 0 0px 0 0px;"  id="Kd_down" value="-">
+    
+            </div>
+        </div>
+        <div class="row">
+            <div class="col">
+                <input type="button" id="pid_SetBtn" onclick="pid_setValue()" value="SET PID">
+            </div>
+        </div>
+
+    </div>
+</body>
+<script>
+    const motor1_speed = document.getElementById('motor1_speed');
+    const motor1_speedDisplay = document.getElementById('motor1_speedDisplay');
+    const motor_sync = document.getElementById('motor_sync');
+    const motor2_speed = document.getElementById('motor2_speed');
+    const motor2_speedDisplay = document.getElementById('motor2_speedDisplay');
+    const motorRunBtn = document.getElementById('motor_runBtn');
+    let motor_isRunning = false;
+    
+
+    motor1_speed.addEventListener('input', function() {
+        motor1_speedDisplay.textContent = motor1_speed.value;
+        if (motor_sync.checked) {
+            motor2_speed.value = motor1_speed.value;
+            motor2_speedDisplay.textContent = motor1_speedDisplay.textContent;
+        }
+    });
+
+    motor1_speed.addEventListener('change', function() {        
+        // vì motor đang chạy nên sẽ đặt là 'STOP'
+        if (motor_isRunning) {  
+            console.log('SET -> M1: ', motor1_speed.value + ', M2: ', motor2_speed.value);
+        }
+    })
+
+
+    motor2_speed.addEventListener('change', function() {
+        motor2_speedDisplay.textContent = motor2_speed.value;
+    })
+
+    motor_sync.addEventListener('change', function() {
+        if (motor_sync.checked) {
+            motor2_speed.value = motor1_speed.value;
+            motor2_speedDisplay.textContent = motor1_speedDisplay.textContent;
+        }
+    });
+
+    window.addEventListener('load', onload);
+    function onload() {
+        motor_isRunning_check();
+    }
+
+    function motor_isRunning_check() {
+        if (motorRunBtn.value === 'STOP') {
+            motor_isRunning = true;
+            return true;
+        } else {
+            motor_isRunning = false;
+            return false;
+        }
+    }
+
+    function btn_motorRun() {
+        if (motorRunBtn.value === 'RUN') {
+            motorRunBtn.value = 'STOP';
+            motor_isRunning = true;
+            console.log('M1: ', motor1_speed.value + ', M2: ', motor2_speed.value);
+        } else {
+            motorRunBtn.value = 'RUN';
+            motor_isRunning = false;
+            console.log('Motors stopped');
+        }
+    }
+
+    function pid_setValue() {
+        const Kp = document.getElementById('Kp').value;
+        const Ki = document.getElementById('Ki').value;
+        const Kd = document.getElementById('Kd').value;
+        let msg= 
+        {
+            M1: parseFloat(motor1_speed.value),
+            M2: parseFloat(motor2_speed.value),
+            Kp: parseFloat(Kp),
+            Ki: parseFloat(Ki),
+            Kd: parseFloat(Kd)
+        };
+        console.log('PID Set:', msg);
+    }
+
+    function initWebSocket() {
+        const wsServerIP = document.getElementById('wsServerIP').value;
+        const webSocket = new WebSocket(`ws://${wsServerIP}:81/`);
+        webSocket.onOpen = function() {
+            console.log('WebSocket connection established');
+            webSocket.send(JSON.stringify({ type: 'init', message: 'WebSocket connected' }));
+        };
+        webSocket.onclose = function() {
+            console.log('WebSocket connection closed');
+            ws_retryConnect();
+        };
+    }
+
+    function ws_retryConnect() {
+        console.log('Retrying WebSocket connection...');
+        setTimeout(initWebSocket, 1000); // Retry after 5 seconds
+    }
+    // function btn_pidDelta(id, delta) {
+    //     const input = document.getElementById(id);
+    //     let value = parseFloat(input.value);
+    //     if (isNaN(value)) {
+    //         value = 0;
+    //     }
+    //     value += delta;
+    //     input.value = value.toFixed(2);
+    // }
+</script>
+</html>

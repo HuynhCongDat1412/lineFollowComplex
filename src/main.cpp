@@ -32,36 +32,7 @@ int8_t motor1_speed = 0;
 int8_t motor2_speed = 0;
 PIDController pid;
 
-// ==== HTML PAGE ====
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"><title>ESP32 Line Control</title></head>
-<body>
-  <h2>Motor Control</h2>
-  <textarea id="data" rows="4" cols="30">{"motor1": 60, "motor2": 0}</textarea><br>
-  <button onclick="sendData()">Send</button>
-  <h3>Sensor Values:</h3>
-  <div id="sensors"></div>
 
-<script>
-let socket = new WebSocket("ws://" + location.hostname + ":81/");
-
-socket.onmessage = function(event) {
-  let data = JSON.parse(event.data);
-  if (data.sensor) {
-    document.getElementById("sensors").innerText = "[" + data.sensor.join(", ") + "]";
-  }
-};
-
-function sendData() {
-  let txt = document.getElementById("data").value;
-  socket.send(txt);
-}
-</script>
-</body>
-</html>
-)rawliteral";
 
 void handle_msg(StaticJsonDocument<200> &doc);
 void handle_motor(StaticJsonDocument<200> doc);
@@ -71,26 +42,21 @@ void motor_set(int pwmChannel, int in1, int in2, int speed);
 // ==== SETUP FUNCTIONS ====
 
 void setup_WS() {
-  IPAddress local_IP(192, 168, 1, 65);
-  IPAddress gateway(192, 168, 1, 1);
-  IPAddress subnet(255, 255, 255, 0);
-  IPAddress primaryDNS(8, 8, 8, 8);   // Optional
-  IPAddress secondaryDNS(8, 8, 4, 4); // Optional
+  // IPAddress local_IP(192, 168, 1, 65);
+  // IPAddress gateway(192, 168, 1, 1);
+  // IPAddress subnet(255, 255, 255, 0);
+  // IPAddress primaryDNS(8, 8, 8, 8);   // Optional
+  // IPAddress secondaryDNS(8, 8, 4, 4); // Optional
 
-  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
-    Serial.println("STA Failed to configure");
-  }
+  // if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
+  //   Serial.println("STA Failed to configure");
+  // }
   // Setup WiFi
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500); Serial.print(".");
   }
   Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
-
-  // Start HTTP server and webSocketServer
-  server.on("/", []() {
-    server.send_P(200, "text/html", index_html);
-  });
   server.begin();
   webSocketServer.begin();
   webSocketServer.onEvent(webSocketEvent);
@@ -113,15 +79,13 @@ void setup() {
   Serial.begin(115200);
   setup_WS();
   setup_pin(); // Cấu hình chân GPIO  
-  // Cấu hình IP tĩnh
-  
+  // Cấu hình IP tĩnh  
 }
 
 // ==== LOOP ====
 void loop() {
   webSocketServer.loop();
   server.handleClient();
-
 }
 
 // ==== MOTOR DRIVE FUNCTION ====
@@ -189,8 +153,6 @@ void handle_sensor() {
   serializeJson(doc, msg);
   webSocketServer.broadcastTXT(msg);
 }
-
-
 
 void handle_pid (uint8_t baseSpeed ) {
   int8_t linePosition = readLineSensor(); 
