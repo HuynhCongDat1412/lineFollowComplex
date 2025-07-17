@@ -1,190 +1,341 @@
-// main.cpp - ESP32 gửi web interface và giao tiếp WebSocket
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
 #include "pid.h"
+#include <littleFS.h>
 
 // ==== WIFI CONFIG ====
 const char* ssid = "DAT PHUONG";
 const char* password = "19201974";
 
-// ==== WEB SERVER ====
+// ==== SERVER ====
 WebServer server(80);
 WebSocketsServer webSocketServer = WebSocketsServer(81);
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length);
-// ==== MOTOR CONTROL (TB6612) ====
-const int PWMA = 18, AIN1 = 19, AIN2 = 22;
-const int BIN1 = 16, BIN2 = 21, PWMB = 4;
-// ==== SENSOR PINS ====
-// 5 mắt cảm biến: 35, 32, 33, 25, 26
+
+// ==== MOTOR CONTROL ====
+const int PWMA = 5, AIN1 = 18, AIN2 = 22;
+const int BIN1 = 4, BIN2 = 21, PWMB = 16;
+
+// ==== SENSOR ====
 const uint8_t sensors[5] = {35, 32, 33, 25, 26};
-int8_t sensorValues[5];
+uint8_t pattern[5] = {0};
 
-
-typedef enum {
-  LEFT,
-  RIGHT,
-} MOTOR;
-
-int8_t motor1_speed = 0;
-int8_t motor2_speed = 0;
+// ==== PID ====
 PIDController pid;
+uint8_t M1_speed = 0, M2_speed = 0;
 
-
-
-void handle_msg(StaticJsonDocument<200> &doc);
-void handle_motor(StaticJsonDocument<200> doc);
-void handle_reset();
-void handle_sensor();
-void motor_set(int pwmChannel, int in1, int in2, int speed);
-// ==== SETUP FUNCTIONS ====
-
-void setup_WS() {
-  // IPAddress local_IP(192, 168, 1, 65);
-  // IPAddress gateway(192, 168, 1, 1);
-  // IPAddress subnet(255, 255, 255, 0);
-  // IPAddress primaryDNS(8, 8, 8, 8);   // Optional
-  // IPAddress secondaryDNS(8, 8, 4, 4); // Optional
-
-  // if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
-  //   Serial.println("STA Failed to configure");
-  // }
-  // Setup WiFi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500); Serial.print(".");
+// ==== JSON CONFIG ====
+StaticJsonDocument<2048> pidConfig;
+const char* defaultConfig = R"([
+  {
+    "stage": 0,
+    "segments": [
+      {
+        "type": "straight",
+        "pattern": ["00100"],
+        "pid": [0, 0, 0, 0, 0]
+      }
+    ]
   }
-  Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
-  server.begin();
-  webSocketServer.begin();
-  webSocketServer.onEvent(webSocketEvent);
+])";
+
+uint8_t lastValidPattern[5] = {0,0,0,0,0};
+
+
+void saveToFS(const char* filename, const JsonDocument& doc) {
+    File file = LittleFS.open(filename, "w");
+    if (!file) {
+        Serial.println("Failed to open file for writing");
+        return;
+    }
+    serializeJson(doc, file);
+    file.close();
+    Serial.println("Configuration saved to " + String(filename));
 }
 
-void setup_pin(){
-  pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT); pinMode(PWMA, OUTPUT);
-  pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT); pinMode(PWMB, OUTPUT);  
-  for (int i = 0; i < 5; i++) {
-    pinMode(sensors[i], INPUT);
-  }
-  ledcSetup(0, 1000, 8); ledcAttachPin(PWMA, 0);
-  ledcSetup(1, 1000, 8); ledcAttachPin(PWMB, 1);
-
-  PID_init(&pid, 25.0, 0.0, 8.0, -100, 100); // Kp, Ki, Kd, min, max
+bool loadFromFS(const char* filename, JsonDocument& doc) {
+    File file = LittleFS.open(filename, "r");
+    if (!file) {
+        Serial.println("Failed to open file for reading");
+        return false;
+    }
+    DeserializationError error = deserializeJson(doc, file);
+    file.close();
+    if (error) {
+        Serial.print("Failed to read file: ");
+        Serial.println(error.c_str());
+        return false;
+    }
+    return true;
 }
-// ==== SETUP ====
+    
+// Đọc trạng thái line sensor vào mảng pattern
+void getLinePattern(uint8_t pattern[5]) {
+    bool hasLine = false;
+    for (int i = 0; i < 5; i++) {
+        pattern[i] = (digitalRead(sensors[i]) == LOW) ? 1 : 0;
+        if (pattern[i] == 1) {
+            hasLine = true;
+        }
+    }
+    if (hasLine) {
+        for (int i = 0; i < 5; i++) lastValidPattern[i] = pattern[i];
+    }
+    else if (!hasLine) {
+        // Nếu không có line, giữ nguyên pattern cuối cùng
+        for (int i = 0; i < 5; i++) {pattern[i] = lastValidPattern[i];}
+    }
+}
+
+
+
+// So khớp tuyệt đối pattern với chuỗi mẫu
+bool matchPattern(const uint8_t* pattern, const char* patternStr) {
+    for (int i = 0; i < 5; i++) {
+        if ((patternStr[i] == '1' && pattern[i] != 1) ||
+            (patternStr[i] == '0' && pattern[i] != 0)) return false;
+    }
+    return true;
+}
+
+int scoreMatch(const uint8_t* input, const char* pattern) {
+    int score = 0;
+    for (int i = 0; i < 5; i++) {
+        if ((pattern[i] == '1' && input[i] == 1) ||
+            (pattern[i] == '0' && input[i] == 0)) score++;
+    }
+    return score;
+}
+uint8_t segmentTime = 0;
+const char* bestMatchType(const uint8_t* input, JsonDocument& doc) {
+    static char bestType[16] = "unknown";
+    int bestScore = -1;
+    JsonArray segments = doc[0]["segments"];
+    for (JsonObject segment : segments) {
+        const char* type = segment["type"];
+        JsonArray patterns = segment["pattern"];
+        for (const char* pat : patterns) {
+            int score = scoreMatch(input, pat);
+            if (score > bestScore) {
+                segmentTime = segment.containsKey("time") ? segment["time"] : 0;
+                bestScore = score;
+                strcpy(bestType, type);
+            }
+        }
+    }
+    return bestType;
+}
+
+// Tìm loại segment khớp nhất với pattern hiện tại
+const char* detectSegmentType(const uint8_t* pattern, JsonDocument& doc) {
+    static char resultType[16] = "unknown";
+    JsonArray segments = doc[0]["segments"];
+    for (JsonObject segment : segments) {
+        const char* type = segment["type"];
+        JsonArray patterns = segment["pattern"];
+        for (const char* p : patterns) {
+            if (matchPattern(pattern, p)) {
+                strcpy(resultType, type);
+                return resultType;
+            }
+        }
+    }
+    return "unknown";
+}
+
+
+// Cập nhật PID và tốc độ từ cấu hình JSON theo loại segment
+void setPIDFromType(const char* type, JsonDocument& doc) {
+    JsonArray segments = doc[0]["segments"];
+    for (JsonObject segment : segments) {
+        if (strcmp(segment["type"], type) == 0) {
+            JsonArray pidArray = segment["pid"];
+            M1_speed = pidArray[0].as<int>();
+            M2_speed = pidArray[1].as<int>();
+            int16_t maxPidOutput = max(M1_speed, M2_speed);
+            float Kp = pidArray[2];
+            float Ki = pidArray[3];
+            float Kd = pidArray[4];
+            PID_init(&pid, Kp, Ki, Kd, -maxPidOutput, maxPidOutput);
+            break;
+        }
+    }
+}
+
+// Tính sai số line theo trọng số
+float computeLineError(const uint8_t pattern[5]) {
+    const int weights[5] = {-2, -1, 0, 1, 2};
+    int sum = 0, count = 0;
+    for (int i = 0; i < 5; i++) {
+        if (pattern[i] == 1) {
+            sum += weights[i];
+            count++;
+        }
+    }
+    if (count == 0) return 0;
+    return (float)sum / count;
+}
+
+// Điều khiển động cơ
+void setMotor(int pwmChannel, int in1, int in2, int speed) {
+    if (speed > 0) {
+        digitalWrite(in1, HIGH); digitalWrite(in2, LOW);
+        ledcWrite(pwmChannel, speed);
+
+    } else {
+        digitalWrite(in1, LOW); digitalWrite(in2, LOW);
+        ledcWrite(pwmChannel, 0);
+    }
+}
+
+// Truyền tốc độ cơ bản và correction cho từng động cơ
+void driveMotors(int baseSpeedLeft, int baseSpeedRight, float correction) {
+    int left = constrain(baseSpeedLeft + correction, 0, 100);
+    int right = constrain(baseSpeedRight - correction, 0, 100);
+    setMotor(0, AIN1, AIN2, map(left, 0, 100, 0, 255));
+    setMotor(1, BIN1, BIN2, map(right, 0, 100, 0, 255));
+}
+
+bool pidConfigJustUpdated = false;
+// Xử lý tin nhắn WebSocket
+void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
+    switch(type) {
+        case WStype_TEXT: {
+            Serial.printf("[%u] Received text: %s\n", num, payload);
+            DeserializationError error = deserializeJson(pidConfig, (char*)payload);
+            if (error) {
+                Serial.print("JSON parse error: ");
+                Serial.println(error.c_str());
+            } else {
+                Serial.println("------------------------------------------------------------");
+                saveToFS("/pid_config.json", pidConfig);
+                pidConfigJustUpdated = true; // Đánh dấu để cập nhật lại PID
+                Serial.println("PID config updated from WebSocket!");
+            }
+            webSocketServer.sendTXT(num, payload, length); // Echo lại cho client
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+void sendStatusPacket(const uint8_t* pattern, const char* type, float lineError, int leftSpeed, int rightSpeed) {
+    String patternStr = "";
+    for (int i = 0; i < 5; i++) patternStr += String(pattern[i]);
+
+    String msg = "[";
+    msg += "{\"cmd\":\"sensor\",\"value\":\"" + patternStr + "\"},";
+    msg += "{\"cmd\":\"SegmentType\",\"value\":\"" + String(type) + "\"},";
+    msg += "{\"cmd\":\"linePos\",\"value\":" + String(lineError, 3) + "},";
+    msg += "{\"cmd\":\"pid\",\"value\":[" + String(leftSpeed) + "," + String(rightSpeed) + "," +
+           String(pid.kp, 3) + "," + String(pid.ki, 3) + "," + String(pid.kd, 3) + "]}";
+    msg += "]";
+
+    webSocketServer.broadcastTXT(msg);
+}
+String currentType = "unknown";
+String lastDetectedType = "unknown";
+int stableCount = 0;
+const int stableThreshold = 3;
+unsigned long lastTypeChange = 0;
+const unsigned long minTypeDuration = 200;
+
+void updateSegmentType(const char* newType, JsonDocument& doc) {
+    if (segmentTime*1000 > millis() - lastTypeChange) {
+        return; // Không thay đổi nếu chưa đủ thời gian
+    }
+  if (strcmp(newType, lastDetectedType.c_str()) == 0) {
+    stableCount++;
+  } else {
+    stableCount = 1;
+    lastDetectedType = newType;
+  }
+
+  if ((millis() - lastTypeChange > minTypeDuration) && (stableCount >= stableThreshold)) {
+    if (currentType != newType) {
+      currentType = newType;
+      lastTypeChange = millis();
+      Serial.print("[Segment] Type changed to: ");
+      Serial.println(currentType);
+      setPIDFromType(newType, doc);  // Truyền đúng kiểu JsonDocument&
+      PID_reset(&pid);
+    }
+  }
+}
+
+
 
 void setup() {
-  Serial.begin(115200);
-  setup_WS();
-  setup_pin(); // Cấu hình chân GPIO  
-  // Cấu hình IP tĩnh  
+    Serial.begin(115200);
+    WiFi.begin(ssid, password);
+    LittleFS.begin();
+    if (!loadFromFS("/pid_config.json", pidConfig)) {
+        deserializeJson(pidConfig, defaultConfig);
+    }
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500); Serial.print(".");
+    }
+    Serial.println("\nWiFi connected");
+    Serial.println(WiFi.localIP());
+    server.begin();
+    webSocketServer.begin();
+    webSocketServer.onEvent(handleWebSocketEvent);
+    // Setup pins
+    pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT); pinMode(PWMA, OUTPUT);
+    pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT); pinMode(PWMB, OUTPUT);
+    for (int i = 0; i < 5; i++) pinMode(sensors[i], INPUT_PULLUP);
+    ledcSetup(0, 1000, 8); ledcAttachPin(PWMA, 0);
+    ledcSetup(1, 1000, 8); ledcAttachPin(PWMB, 1);
+    // Default PID
+    DeserializationError error = deserializeJson(pidConfig, defaultConfig);
+    if (error) {
+        Serial.println("Default PID config parse error!");
+    }
+    setPIDFromType(detectSegmentType(pattern, pidConfig), pidConfig);
 }
 
-// ==== LOOP ====
+
+static unsigned long fregControl = 10;
 void loop() {
-  webSocketServer.loop();
-  server.handleClient();
-}
-
-// ==== MOTOR DRIVE FUNCTION ====
-void motor_set(int pwmChannel, int in1, int in2, int speed) {
-  if (speed > 0) {
-    digitalWrite(in1, HIGH); digitalWrite(in2, LOW);
-    ledcWrite(pwmChannel, speed);
-  } else if (speed < 0) {
-    digitalWrite(in1, LOW); digitalWrite(in2, HIGH);
-    ledcWrite(pwmChannel, -speed);
-  } else {
-    digitalWrite(in1, LOW); digitalWrite(in2, LOW);
-    ledcWrite(pwmChannel, 0);
-  }
-}
+    webSocketServer.loop();  // Cập nhật WebSocket'
+    static unsigned long lastControlTime = millis();
 
 
-// ==== HANDLE WEBSOCKET EVENTS ====
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
-  if (type == WStype_TEXT) {
-    Serial.printf("Message from client %u: %s\n", num, payload);
-    StaticJsonDocument<200> doc;
-    DeserializationError err = deserializeJson(doc, payload);
-    if (!err && doc.containsKey("cmd")) {
-      handle_msg(doc);
+    if (millis() - lastControlTime >= fregControl) {
+        lastControlTime = millis();
+            // Đọc line sensor
+        getLinePattern(pattern);
+        // Tìm loại segment phù hợp nhất
+        const char* type = bestMatchType(pattern, pidConfig);
+
+        // Cập nhật loại segment nếu ổn định đủ lâu và vượt quá thời gian mỗi segment
+        updateSegmentType(type, pidConfig);
+        // Nếu loại segment thay đổi, cập nhật PID
+        if (pidConfigJustUpdated) {
+            setPIDFromType(currentType.c_str(), pidConfig);  // cập nhật lại PID hiện tại
+            pidConfigJustUpdated = false;
+        }
+        // Tính sai số line
+        float error = computeLineError(pattern);
+
+        // Tính toán điều khiển PID
+        float correction = PID_compute(&pid,0.0, error);
+
+        // Truyền tín hiệu điều khiển động cơ
+        driveMotors(M1_speed, M2_speed, correction);
+
+        static unsigned long lastSend = 0;
+
+    } else {
+        return; // Không thực hiện điều khiển nếu chưa đến thời gian
     }
-  }
-}
-
-void handle_msg(StaticJsonDocument<200> &doc) {
-  if (doc["cmd"] == "motor") {
-    handle_motor(doc);
-  }
-  else if (doc["cmd"] == "reset") {
-    handle_reset();
-  }
-  else {
-    Serial.println("Unknown command");
-  }
-}
-
-void handle_motor (StaticJsonDocument<200> doc) {
-  if (doc.containsKey("motor1")) {
-    motor1_speed = doc["motor1"] | 0; // Default to 0 if not specified
-    motor_set(0, AIN1, AIN2, map(motor1_speed, 0, 100, 0, 255));
-  }
-  if (doc.containsKey("motor2")) {
-    motor2_speed = doc["motor2"] | 0;
-    motor_set(1, BIN1, BIN2, map(motor2_speed, 0, 100, 0, 255));
-  }
-}
-
-void handle_reset() {
-  Serial.println("Resetting ESP32...");
-  ESP.restart();
-}
-
-void handle_sensor() {
-  StaticJsonDocument<200> doc;
-  JsonArray arr = doc.createNestedArray("sensor");
-  for (int i = 0; i < 5; i++) {
-    arr.add(digitalRead(sensors[i]));
-  }
-  String msg;
-  serializeJson(doc, msg);
-  webSocketServer.broadcastTXT(msg);
-}
-
-void handle_pid (uint8_t baseSpeed ) {
-  int8_t linePosition = readLineSensor(); 
-  const int8_t targetPosition = 0; // Giả sử đường thẳng ở giữa
-  float correction = PID_compute(&pid, targetPosition, linePosition);
-  
-  int8_t leftSpeed = baseSpeed + correction;
-  int8_t rightSpeed = baseSpeed - correction;
-  leftSpeed = constrain(leftSpeed, 0, 100);
-  rightSpeed = constrain(rightSpeed, 0, 100);
-  motor_control(leftSpeed, LEFT);
-  motor_control(rightSpeed, RIGHT);
-
-}
-
-int readLineSensor() {
-  int position = 0;
-  for (int i = 0; i < 5; i++) {
-    sensorValues[i] = digitalRead(sensors[i]);
-    if (sensorValues[i] == HIGH) {
-      position += (i - 2); // Gán trọng số -2, -1, 0, 1, 2
+    static unsigned long lastStatusSend = 0;
+    if (millis() - lastStatusSend >= 2000) {
+        lastStatusSend = millis();
+        // Gửi gói trạng thái qua WebSocket
+        sendStatusPacket(pattern, currentType.c_str(), computeLineError(pattern), M1_speed, M2_speed);
     }
-}
-  return position;
-}
-
-
-// 0->100%
-void motor_control(int baseSpeed,MOTOR motor) {
-  if (motor == LEFT) {
-    motor_set(0, AIN1, AIN2, map(baseSpeed, 0, 100, 0, 255)); // Motor trái chạy
-  } else if (motor == RIGHT) {
-    motor_set(1, BIN1, BIN2, map(baseSpeed, 0, 100, 0, 255)); // Motor phải chạy
-  }
 }

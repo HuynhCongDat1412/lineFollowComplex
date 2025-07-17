@@ -1,2 +1,2 @@
-bblanchon/ArduinoJson@^7.4.2
-links2004/WebSockets@^2.6.1
+esphome/AsyncTCP-esphome@^2.1.4
+ottowinter/ESPAsyncWebServer-esphome@^3.4.0

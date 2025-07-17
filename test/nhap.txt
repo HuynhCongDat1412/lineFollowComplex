@@ -17,3 +17,115 @@
         "pid":[0.5,0,0.2]
     }
 ]
+
+
+const int PWMA = 18, AIN1 = 19, AIN2 = 22;
+const int BIN1 = 4, BIN2 = 21, PWMB = 16;
+const uint8_t sensors[5] = {35, 32, 33, 25, 26};
+
+4,21,16
+
+
+[
+  {
+    "stage": 1,
+    "segments": [
+      {
+        "type": "straight",
+        "pattern": ["00100", "01100", "00110"],
+        "pid": [40, 40, 0.1, 0, 0.2]
+      },
+      {
+        "type": "square",
+        "pattern": ["11000", "00001"],
+        "pid": [40, 40, 0.5, 0, 0.2]
+      }
+    ]
+
+  }
+  {
+    "stage": 2,
+    "segments": [
+      {
+        "type": "straight",
+        "pattern": ["00100", "01100", "00110"],
+        "pid": [40, 40, 0.1, 0, 0.2]
+      },
+      {
+        "type": "curve",
+        "pattern": ["11100", "00111"],
+        "pid": [40, 40, 0.5, 0, 0.2]
+      }
+    ]
+  }
+]
+
+[
+  {
+    "stage": 0,
+    "segments": [
+      {
+        "type": "straight",
+        "pattern": ["00100", "01100", "00110"],
+        "pid": [40, 40, 0.1, 0, 0.2],
+        "time": 4
+      },
+      {
+        "type": "straight",
+        "pattern": ["00100", "01100", "00110"],
+        "pid": [40, 40, 0.1, 0, 0.2],
+        "time": 2
+      }
+    ]
+  }
+]
+
+
+-esp32 nhận được tin nhắn từ webSocket rồi phản hồi lại
+
+- Lựa chọn output max min trên web
+- Lựa chọn type ưu tiên trên web
+- Config tần số quét led
+
+
+{[
+  { "cmd":"pidControl"},
+  {"value": [
+      {
+        "stage": 1,
+        "segments": [
+          {
+            "type": "straight",
+            "pattern": ["00100", "01100", "00110"],
+            "pid": [40, 40, 0.1, 0, 0.2]
+          },
+          {
+            "type": "square",
+            "pattern": ["11000", "00001"],
+            "pid": [40, 40, 0.5, 0, 0.2]
+          }
+        ]
+
+      }
+      {
+        "stage": 2,
+        "segments": [
+          {
+            "type": "straight",
+            "pattern": ["00100", "01100", "00110"],
+            "pid": [40, 40, 0.1, 0, 0.2]
+          },
+          {
+            "type": "curve",
+            "pattern": ["11100", "00111"],
+            "pid": [40, 40, 0.5, 0, 0.2]
+          }
+        ]
+      }
+    ]
+  }]
+  [
+    {"cmd":"freqControl"},
+    {"value":10}
+  ]
+  }
