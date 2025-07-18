@@ -195,7 +195,7 @@ void driveMotors(int baseSpeedLeft, int baseSpeedRight, float correction) {
     int left = constrain(baseSpeedLeft + correction, 0, 100);
     int right = constrain(baseSpeedRight - correction, 0, 100);
     setMotor(0, AIN1, AIN2, map(left, 0, 100, 0, 255));
-    setMotor(1, BIN1, BIN2, map(right, 0, 100, 0, 255));
+    setMotor(1, BIN2, BIN1, map(right, 0, 100, 0, 255));
 }
 
 bool pidConfigJustUpdated = false;
