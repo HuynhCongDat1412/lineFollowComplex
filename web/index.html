@@ -311,7 +311,7 @@ function updateWsStatus(text, color = "#007700") {
             ws.close();
         }
         const wsServerIP = document.getElementById('wsServerIP').value;
-        const wsUrl = `ws://${wsServerIP}:81`;
+        const wsUrl = `ws://${wsServerIP}/ws`;
         ws = new WebSocket(wsUrl);
         updateWsStatus("Đang kết nối...", "#888800");
 
