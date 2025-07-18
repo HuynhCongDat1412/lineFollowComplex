@@ -108,8 +108,7 @@ int scoreMatch(const uint8_t* input, const char* pattern) {
     }
     return score;
 }
-uint8_t segmentTime = 0;
-const char* bestMatchType(const uint8_t* input, JsonDocument& doc) {
+const char* bestMatchType(const uint8_t* input, JsonDocument& doc, uint16_t& segmentTime) {
     static char bestType[16] = "unknown";
     int bestScore = -1;
     JsonArray segments = doc[0]["segments"];
@@ -119,7 +118,12 @@ const char* bestMatchType(const uint8_t* input, JsonDocument& doc) {
         for (const char* pat : patterns) {
             int score = scoreMatch(input, pat);
             if (score > bestScore) {
-                segmentTime = segment.containsKey("time") ? segment["time"] : 0;
+                if (segment.containsKey("time")) {
+                    segmentTime = segment["time"];
+                    segmentTime *= 1000;
+                } else {
+                    segmentTime = 0; // Không có thời gian, đặt về 0
+                }
                 bestScore = score;
                 strcpy(bestType, type);
             }
@@ -244,9 +248,6 @@ unsigned long lastTypeChange = 0;
 const unsigned long minTypeDuration = 200;
 
 void updateSegmentType(const char* newType, JsonDocument& doc) {
-    if (segmentTime*1000 > millis() - lastTypeChange) {
-        return; // Không thay đổi nếu chưa đủ thời gian
-    }
   if (strcmp(newType, lastDetectedType.c_str()) == 0) {
     stableCount++;
   } else {
@@ -299,43 +300,41 @@ void setup() {
 
 
 static unsigned long fregControl = 10;
-void loop() {
-    webSocketServer.loop();  // Cập nhật WebSocket'
-    static unsigned long lastControlTime = millis();
 
+
+void loop() {
+    webSocketServer.loop();
+    static uint16_t lastControlTime = millis();
+    static char currentType[16] = "unknown";
+    static uint16_t segmentStartTime = 0;
+    static uint16_t segmentTime = 0;
 
     if (millis() - lastControlTime >= fregControl) {
         lastControlTime = millis();
-            // Đọc line sensor
         getLinePattern(pattern);
-        // Tìm loại segment phù hợp nhất
-        const char* type = bestMatchType(pattern, pidConfig);
 
-        // Cập nhật loại segment nếu ổn định đủ lâu và vượt quá thời gian mỗi segment
-        updateSegmentType(type, pidConfig);
-        // Nếu loại segment thay đổi, cập nhật PID
-        if (pidConfigJustUpdated) {
-            setPIDFromType(currentType.c_str(), pidConfig);  // cập nhật lại PID hiện tại
-            pidConfigJustUpdated = false;
+        // Chỉ cho phép đổi type khi đã hết thời gian segmentTime
+        if ((millis() - segmentStartTime >= segmentTime)) {
+            uint16_t newSegmentTime = 0;
+            const char* type = bestMatchType(pattern, pidConfig, newSegmentTime);
+            if (strcmp(currentType, type) != 0 || segmentTime != newSegmentTime) {
+                strcpy(currentType, type);
+                segmentTime = newSegmentTime;
+                segmentStartTime = millis();
+                setPIDFromType(type, pidConfig);
+                PID_reset(&pid);
+            }
         }
-        // Tính sai số line
+        // Nếu chưa hết thời gian, giữ nguyên currentType
+
         float error = computeLineError(pattern);
-
-        // Tính toán điều khiển PID
-        float correction = PID_compute(&pid,0.0, error);
-
-        // Truyền tín hiệu điều khiển động cơ
+        float correction = PID_compute(&pid, 0.0, error);
         driveMotors(M1_speed, M2_speed, correction);
-
-        static unsigned long lastSend = 0;
-
-    } else {
-        return; // Không thực hiện điều khiển nếu chưa đến thời gian
     }
+
     static unsigned long lastStatusSend = 0;
     if (millis() - lastStatusSend >= 2000) {
         lastStatusSend = millis();
-        // Gửi gói trạng thái qua WebSocket
-        sendStatusPacket(pattern, currentType.c_str(), computeLineError(pattern), M1_speed, M2_speed);
+        sendStatusPacket(pattern, currentType, computeLineError(pattern), M1_speed, M2_speed);
     }
 }
