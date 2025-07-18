@@ -29,6 +29,9 @@
         }
 
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
+    <script src="chart.js"></script>
 </head>
 <body>
     <h1>MY COOLEST CAR</h1>
@@ -130,6 +133,12 @@
             </div>
         </div>
     </div>
+    <h3>Biểu đồ Line Pos & Correction</h3>
+    <canvas id="chartCanvas" width="800" height="250"></canvas>
+    <div style="margin-top: 16px;">
+    <input type="range" id="chartSlider" min="0" max="0" value="0" step="1" style="width: 100%;">
+</div>
+
 </body>
 
 <script>
@@ -275,30 +284,66 @@ function saveSetting() {
 <script>
     window.onload = function() {
         initWebSocket();
-    };
+        setupChart();
+        document.getElementById('chartSlider').addEventListener('input', function () {
+    currentIndex = parseInt(this.value);
+
+    const start = Math.max(0, currentIndex - 50);
+    const end = currentIndex;
+
+    const labels = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    const lineData = fullLinePos.slice(start, end + 1);
+    const correctionData = fullCorrection.slice(start, end + 1);
+
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = lineData;
+    chart.data.datasets[1].data = correctionData;
+    chart.update();
+});
+
+};
 
     let ws = null; // Khai báo ở đầu file script
+    let enableChart = false;
+    
+    let noLineCount = 0;
+
 
 function messageDispatcher(data) {
-    let line = 'No data', segment = 'unknown', pid = '[0,0,0,0,0]', linePos = '0.000';
+    let line = 'No data', segment = 'unknown', pid = '[0,0,0,0,0]', linePos = 0.0, correction = null;
+
     if (Array.isArray(data)) {
         data.forEach(item => {
             if (item.cmd === "sensor") line = item.value;
             if (item.cmd === "SegmentType") segment = item.value;
             if (item.cmd === "pid") pid = JSON.stringify(item.value);
-            if (item.cmd === "linePos") linePos = item.value;
+            if (item.cmd === "linePos") linePos = parseFloat(item.value);
+            if (item.cmd === "correction") correction = parseFloat(item.value);
         });
-    } else {
-        if (data.sensor) line = data.sensor;
-        if (data.SegmentType) segment = data.SegmentType;
-        if (data.pid) pid = JSON.stringify(data.pid);
-        if (data.linePos) linePos = data.linePos;
     }
+     if (line === "11111") {
+        noLineCount++;
+        if (noLineCount > 5) {
+            enableChart = false;
+        }
+    } else {
+        noLineCount = 0;
+    }
+
+    // Cập nhật hiển thị
     document.getElementById('linePosition').textContent = line;
     document.getElementById('segmentType').textContent = segment;
     document.getElementById('pidValue').textContent = pid;
-    document.getElementById('linePosValue').textContent = linePos;
+    document.getElementById('linePosValue').textContent = linePos.toFixed(3);
+
+    // Cập nhật biểu đồ nếu có đủ dữ liệu
+    console.log("linePos:", linePos, "correction:", correction);
+    if (enableChart && !isNaN(correction) && correction !== null) {
+        updateChart(linePos, correction);
+    }
+
 }
+
 function updateWsStatus(text, color = "#007700") {
     const statusDiv = document.getElementById('wsStatus');
     statusDiv.textContent = text;
@@ -319,13 +364,22 @@ function updateWsStatus(text, color = "#007700") {
             updateWsStatus("Đã kết nối WebSocket!", "#007700");
         };
         ws.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                messageDispatcher(data);
-            } catch (e) {
-                console.error("Invalid JSON", e);
+        try {
+            const data = JSON.parse(event.data);
+            
+            // Nếu nhận được stage cấu hình từ web thì bật lại biểu đồ
+            if (Array.isArray(data) && data[0]?.stage !== undefined) {
+                enableChart = true;
+                noLineCount = 0;
+                console.log("✅ Bật lại biểu đồ vì nhận được stage mới");
             }
-        };
+
+            messageDispatcher(data);
+        } catch (e) {
+            console.error("Invalid JSON", e);
+        }
+    };
+
         ws.onerror = function(error) {
             console.error('WebSocket error:', error);
             updateWsStatus("Lỗi WebSocket!", "#aa0000");
@@ -339,4 +393,5 @@ function updateWsStatus(text, color = "#007700") {
         initWebSocket();
     }
 </script>
+
 </html>

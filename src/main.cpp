@@ -222,7 +222,7 @@ void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t 
     }
 }
 
-void sendStatusPacket(const uint8_t* pattern, const char* type, float lineError, int leftSpeed, int rightSpeed) {
+void sendStatusPacket(const uint8_t* pattern, const char* type, float lineError, int leftSpeed, int rightSpeed, float correction) {
     String patternStr = "";
     for (int i = 0; i < 5; i++) patternStr += String(pattern[i]);
 
@@ -231,11 +231,14 @@ void sendStatusPacket(const uint8_t* pattern, const char* type, float lineError,
     msg += "{\"cmd\":\"SegmentType\",\"value\":\"" + String(type) + "\"},";
     msg += "{\"cmd\":\"linePos\",\"value\":" + String(lineError, 3) + "},";
     msg += "{\"cmd\":\"pid\",\"value\":[" + String(leftSpeed) + "," + String(rightSpeed) + "," +
-           String(pid.kp, 3) + "," + String(pid.ki, 3) + "," + String(pid.kd, 3) + "]}";
+           String(pid.kp, 3) + "," + String(pid.ki, 3) + "," + String(pid.kd, 3) + "]},";
+    msg += "{\"cmd\":\"correction\",\"value\":" + String(correction, 3) + "}";
     msg += "]";
 
+    Serial.println("Sending: " + msg);  // Log để bạn kiểm tra
     webSocketServer.broadcastTXT(msg);
 }
+
 String currentType = "unknown";
 String lastDetectedType = "unknown";
 int stableCount = 0;
@@ -300,42 +303,40 @@ void setup() {
 
 static unsigned long fregControl = 10;
 void loop() {
-    webSocketServer.loop();  // Cập nhật WebSocket'
-    static unsigned long lastControlTime = millis();
+    webSocketServer.loop();
 
+    static unsigned long lastControlTime = 0;
+    static unsigned long lastStatusSend = 0;
+    static float error;
+    static float correction;
 
-    if (millis() - lastControlTime >= fregControl) {
-        lastControlTime = millis();
-            // Đọc line sensor
+    unsigned long now = millis();
+
+    // --- PID control task ---
+    if (now - lastControlTime >= fregControl) {
+        lastControlTime = now;
+
         getLinePattern(pattern);
-        // Tìm loại segment phù hợp nhất
         const char* type = bestMatchType(pattern, pidConfig);
-
-        // Cập nhật loại segment nếu ổn định đủ lâu và vượt quá thời gian mỗi segment
         updateSegmentType(type, pidConfig);
-        // Nếu loại segment thay đổi, cập nhật PID
+
         if (pidConfigJustUpdated) {
-            setPIDFromType(currentType.c_str(), pidConfig);  // cập nhật lại PID hiện tại
+            setPIDFromType(currentType.c_str(), pidConfig);
             pidConfigJustUpdated = false;
         }
-        // Tính sai số line
-        float error = computeLineError(pattern);
 
-        // Tính toán điều khiển PID
-        float correction = PID_compute(&pid,0.0, error);
-
-        // Truyền tín hiệu điều khiển động cơ
+        error = computeLineError(pattern);
+        correction = PID_compute(&pid, 0.0, error);
         driveMotors(M1_speed, M2_speed, correction);
+        sendStatusPacket(pattern, currentType.c_str(), error, M1_speed, M2_speed, correction);
 
-        static unsigned long lastSend = 0;
+    }
 
-    } else {
-        return; // Không thực hiện điều khiển nếu chưa đến thời gian
-    }
-    static unsigned long lastStatusSend = 0;
-    if (millis() - lastStatusSend >= 2000) {
-        lastStatusSend = millis();
-        // Gửi gói trạng thái qua WebSocket
-        sendStatusPacket(pattern, currentType.c_str(), computeLineError(pattern), M1_speed, M2_speed);
-    }
+
+    // --- Status update task ---
+    // if (now - lastStatusSend >= 2000) {
+    //     lastStatusSend = now;
+
+    //     sendStatusPacket(pattern, currentType.c_str(), error, M1_speed, M2_speed, correction);
+    // }
 }
