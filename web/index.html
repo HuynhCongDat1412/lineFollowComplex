@@ -9,25 +9,54 @@
             width: 100%;
             max-width: 1200px;
             padding: 20px;
-            
+            /* display: flex;
+            flex-wrap: wrap; */
         }
-        .row{
-            display: flex;
-            margin: 10px 0 0 0;
+        .segment-card {
+            border: 1px solid #aaa;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            background: #f8f8f8;
+            box-shadow: 1px 1px 4px #ddd;
+            position: relative;
         }
-        .col{
-            flex: 1;            
+        .segment-card .remove-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #d33;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
         }
-        .col-3 {
-            flex: 0 0 25%;
+        .segment-card label {
+            display: inline-block;
+            width: 80px;
         }
-        .col-6 {
-            flex: 0 0 50%;
-        }
-        .col-9 {
-            flex: 0 0 75%;
+        .segment-card input, .segment-card select {
+            margin-bottom: 6px;
         }
 
+        .col {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .row {
+            display: flex;
+            flex-direction: row;
+            gap: 16px;
+        }
+
+        .col-3 {
+            flex: 0 0 25%;
+
+        }
     </style>
 </head>
 <body>
@@ -35,8 +64,8 @@
     <div>
         <input type="text" id="wsServerIP" value="192.168.1.225">
         <div id="wsStatus" style="margin-bottom:8px;color:#007700;font-weight:bold;">
-    Đang kiểm tra trạng thái WebSocket...
-</div>
+            Đang kiểm tra trạng thái WebSocket...
+        </div>
         <input type="button" id="wsConnectBtn" value="Connect WebSocket" onclick="ws_retryConnect()">
     </div>
     <div class="container">
@@ -54,7 +83,6 @@
                 <input type="checkbox" id="motor_sync" checked>        
             </div>
         </div>
-        <div>
             <input type="button" style="color: rgb(248, 253, 248); background-color: rgb(6, 137, 6); margin: 10px;" onclick="runMotor()" value="RUN">
         </div>
         <div>
@@ -67,217 +95,60 @@
             </div>
         </div>
     </div>
-    <!-- Thêm vào phần body -->
     <div class="container">
         <h3>Cấu hình Stage</h3>
-        <form id="stageForm">
+        <form id="stageForm" onsubmit="return false;">
             <label>Stage:</label>
             <input type="number" id="stageIndex" value="0" min="0"><br><br>
-            <div id="segmentContainer"></div>
-            <button type="button" onclick="segmentModal_open()">Thêm Segment</button>
+            <div id="segmentCards"></div>
+            <button type="button" onclick="addSegmentCard()">Thêm Segment</button>
+            <button type="button" onclick="saveSetting()">Lưu Stage</button>
         </form>
-        <button type="button" onclick="saveSetting()">Lưu Stage</button>
-
-    </div>
-    <!-- Modal nhập segment -->
-    <div id="segmentModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.3);align-items:center;justify-content:center;z-index:1000;">
-        <div style="background:#fff;padding:20px;border-radius:8px;min-width:320px;max-width:90vw;">
-            <h3>Thêm Segment</h3>
-            <!-- chọn type -->
-            <div>
-                <label>Type:</label>
-                <select id="modal-type" class="type">
-                    <option value="straight">Straight</option>
-                    <option value="square">Square</option>
-                    <option value="curve">Curve</option>
-                </select>
-            </div>
-            <!-- chọn pattern cho loại đường đi -->
-            <div style="margin-top:10px;">
-                <label>Pattern (cách nhau bởi dấu phẩy):</label>
-                <input class="pattern" type="text" id="modal-pattern" value="00100,01100,00110" style="width:90%">
-            </div>
-            <!-- chọn tốc độ -->
-            <div style="margin-top:10px;">
-                <label>Tốc độ M1:</label>
-                <input type="range" class="modal-M1-speed" id="modal-M1" value="0" min="0" max="100" style="width:180px;"> 
-                <span id="M1_display">0</span>
-                <br>
-                <label>Tốc độ M2:</label>
-                <input type="range" id="modal-M2" class="modal-M2-speed" value="0" min="0" max="100" style="width:180px;">
-                <span id="M2_display">0</span>
-                 <br>
-                 <div style="margin-top:16px;">
-                    <label  for="modal-sync">Đồng bộ</label>
-                    <input type="checkbox" id="modal-sync" checked>
-                 </div>
-                
-            </div>
-            <!-- chọn pid -->
-        <div style="margin-top:16px;">
-            <label>Time each Type</label>
-            <input id="modal-time" class="type-time" type="number" step="1" value="0" style="width:60px;">
-        </div>
-        <div style="margin-top:16px;">
-            <label>PID (Kp, Ki, Kd):</label>
-            <input id="modal-Kp" class="type-kp" type="number" step="0.01" value="0" style="width:60px;">
-            <input id="modal-Ki" class="type-ki" type="number" step="0.01" value="0" style="width:60px;">
-            <input id="modal-Kd" class="type-kd" type="number" step="0.01" value="0" style="width:60px;">
-        </div>
-            <div style="margin-top:16px;text-align:right;">
-                <button type="button" onclick="segmentModal_submit()">Thêm</button>
-                <button type="button" onclick="segmentModal_close()">Đóng</button>
-            </div>
-        </div>
     </div>
 </body>
-
 <script>
+let ws = null;
 
-    function runMotor() {
-        const M1 = parseFloat(document.getElementById('M1_speed').value);
-        const M2 = parseFloat(document.getElementById('M2_speed').value);
-        const motor_sync = document.getElementById('motor_sync').checked;
-        const stageConfigs = [
-            {
-                stage: 0,
-                segments: [
-                    {
-                        type: "straight",
-                        pattern: ["00100"],
-                        pid: [motor_sync ? M1 : M1, motor_sync ? M1 : M2, 0, 0, 0],
-                        time: 0
-                    }
-                ]
-            }
-        ];
-        console.log('Stage configs:', JSON.stringify(stageConfigs, null, 2));
-        ws.send(JSON.stringify(stageConfigs));
-    }
-    document.getElementById('M1_speed').addEventListener('input', function() {
-        document.getElementById('M1_speed_display').textContent = this.value;
-        if (document.getElementById('motor_sync').checked) {
-            document.getElementById('M2_speed').value = this.value;
-            document.getElementById('M2_speed_display').textContent = this.value;
-        }
-    });
-    document.getElementById('M2_speed').addEventListener('input', function() {
-        document.getElementById('M2_speed_display').textContent = this.value;
-    });
-    document.getElementById('motor_sync').addEventListener('change', function() {
-        if (this.checked) {
-            document.getElementById('M2_speed').value = document.getElementById('M1_speed').value;
-            document.getElementById('M2_speed_display').textContent = document.getElementById('M1_speed').value;
-        }
-    });
-</script>
-<script>
-    function segmentModal_open() {
-        document.getElementById('segmentModal').style.display = 'flex';
-    }
-
-    function segmentModal_close() {
-        document.getElementById('segmentModal').style.display = 'none';
-    }
-
-// Khi nhấn "Thêm" trong modal
-function segmentModal_submit() {
-    const segmentContainer = document.getElementById('segmentContainer');
-    const type = document.getElementById('modal-type').value;
-    const pattern = document.getElementById('modal-pattern').value.split(',').map(s => s.trim());
-    const Kp = parseFloat(document.getElementById('modal-Kp').value);
-    const Ki = parseFloat(document.getElementById('modal-Ki').value);
-    const Kd = parseFloat(document.getElementById('modal-Kd').value);
-    const time = parseInt(document.getElementById('modal-time').value, 10);
-    // Tạo card segment
-    const segmentDiv = document.createElement('div');
-    segmentDiv.className = 'segment segment-card';
-    segmentDiv.dataset.type = type;
-    segmentDiv.dataset.pattern = JSON.stringify(pattern);
-    segmentDiv.innerHTML = `
-        <hr>
-        <strong class="type">Type: ${type}</strong><br>
-        <strong class="pattern">Dạng </strong>
-        <span>${pattern.join(', ')}</span><br>
-        <strong>Tốc độ:</strong> 
-        <span class="m1-speed">${document.getElementById('modal-M1').value}</span>, 
-        <span class="m2-speed">${document.getElementById('modal-M2').value}</span><br>
-        <strong>PID:</strong>
-        <span class="pid-kp">${Kp}</span>,
-        <span class="pid-ki">${Ki}</span>,
-        <span class="pid-kd">${Kd}</span><br>
-        <strong>Time:</strong>
-        <span class="type-time">${time}</span><br>
-        <button class="remove-segment-btn" style="float:right;">X</button>
-    `;
-    segmentContainer.appendChild(segmentDiv);
-
-    // Xử lý nút xóa
-    segmentDiv.querySelector('.remove-segment-btn').onclick = function() {
-        segmentDiv.remove();
-    };
-
-    segmentModal_close();
-}
-
-document.getElementById('modal-M1').addEventListener('input', function() {
-        document.getElementById('M1_display').textContent = this.value;
-        if (document.getElementById('modal-sync').checked) {
-            document.getElementById('modal-M2').value = this.value;
-            document.getElementById('M2_display').textContent = this.value;
-        }
-    });
-    document.getElementById('modal-M2').addEventListener('input', function() {
-        document.getElementById('M2_display').textContent = this.value;
-    });
-    document.getElementById('modal-sync').addEventListener('change', function() {
-        if (this.checked) {
-            document.getElementById('modal-M2').value = document.getElementById('modal-M1').value;
-            document.getElementById('M2_display').textContent = document.getElementById('modal-M1').value;
-        }
-    });
-
-function saveSetting() {
-    const stageIndex = parseInt(document.getElementById('stageIndex').value);
-    const segments = [];
-    document.querySelectorAll('.segment-card').forEach(card => {
-        const typeValue = card.dataset.type; // lấy từ data-type
-        const patternArray = JSON.parse(card.dataset.pattern); // lấy từ data-pattern
-        const m1 = parseFloat(card.querySelector('.m1-speed').textContent.trim());
-        const m2 = parseFloat(card.querySelector('.m2-speed').textContent.trim());
-        const kp = parseFloat(card.querySelector('.pid-kp').textContent.trim());
-        const ki = parseFloat(card.querySelector('.pid-ki').textContent.trim());
-        const kd = parseFloat(card.querySelector('.pid-kd').textContent.trim());
-        const time = parseInt(card.querySelector('.type-time').textContent.trim(), 10);
-        segments.push({
-            type: typeValue,           // đúng: "straight"
-            pattern: patternArray,     // đúng: ["00100", "01100"]
-            pid: [m1, m2, kp, ki, kd],
-            time: time
-        });
-    });
+function runMotor() {
+    const M1 = parseFloat(document.getElementById('M1_speed').value);
+    const M2 = parseFloat(document.getElementById('M2_speed').value);
+    const motor_sync = document.getElementById('motor_sync').checked;
     const stageConfigs = [
         {
-            stage: stageIndex,
-            segments: segments
+            stage: 0,
+            segments: [
+                {
+                    type: "straight",
+                    pattern: ["00100"],
+                    pid: [motor_sync ? M1 : M1, motor_sync ? M1 : M2, 0, 0, 0],
+                    time: 0
+                }
+            ]
         }
     ];
-
-
+    console.log('Stage configs:', JSON.stringify(stageConfigs, null, 2));
     if (ws && ws.readyState === WebSocket.OPEN) {
-        console.log('Sending ', stageConfigs);
         ws.send(JSON.stringify(stageConfigs));
     } else {
         alert('WebSocket chưa kết nối!');
     }
 }
-</script>
-<script>
-    window.onload = function() {
-        initWebSocket();
-    };
-
-    let ws = null; // Khai báo ở đầu file script
+document.getElementById('M1_speed').addEventListener('input', function() {
+    document.getElementById('M1_speed_display').textContent = this.value;
+    if (document.getElementById('motor_sync').checked) {
+        document.getElementById('M2_speed').value = this.value;
+        document.getElementById('M2_speed_display').textContent = this.value;
+    }
+});
+document.getElementById('M2_speed').addEventListener('input', function() {
+    document.getElementById('M2_speed_display').textContent = this.value;
+});
+document.getElementById('motor_sync').addEventListener('change', function() {
+    if (this.checked) {
+        document.getElementById('M2_speed').value = document.getElementById('M1_speed').value;
+        document.getElementById('M2_speed_display').textContent = document.getElementById('M1_speed').value;
+    }
+});
 
 function messageDispatcher(data) {
     let line = 'No data', segment = 'unknown', pid = '[0,0,0,0,0]', linePos = '0.000';
@@ -305,38 +176,248 @@ function updateWsStatus(text, color = "#007700") {
     statusDiv.style.color = color;
 }
 
+function initWebSocket() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close();
+    }
+    const wsServerIP = document.getElementById('wsServerIP').value;
+    const wsUrl = `ws://${wsServerIP}:81`;
+    ws = new WebSocket(wsUrl);
+    updateWsStatus("Đang kết nối...", "#888800");
 
-    function initWebSocket() {
-        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-            ws.close();
+    ws.onopen = function() {
+        updateWsStatus("Đã kết nối WebSocket!", "#007700");
+    };
+    ws.onmessage = function(event) {
+        try {
+            const data = JSON.parse(event.data);
+            messageDispatcher(data);
+        } catch (e) {
+            console.error("Invalid JSON", e);
         }
-        const wsServerIP = document.getElementById('wsServerIP').value;
-        const wsUrl = `ws://${wsServerIP}:81`;
-        ws = new WebSocket(wsUrl);
-        updateWsStatus("Đang kết nối...", "#888800");
+    };
+    ws.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        updateWsStatus("Lỗi WebSocket!", "#aa0000");
+    };
+    ws.onclose = function() {
+        updateWsStatus("WebSocket đã đóng!", "#aa0000");
+        setTimeout(initWebSocket, 5000); // Retry connection after 5 seconds
+    };
+}
+function ws_retryConnect() {
+    initWebSocket();
+}
 
-        ws.onopen = function() {
-            updateWsStatus("Đã kết nối WebSocket!", "#007700");
+function addSegmentCard() {
+    const container = document.getElementById('segmentCards');
+    const div = document.createElement('div');
+    div.className = 'segment-card col-3';
+    div.innerHTML = `
+    <button type="button" class="remove-btn" onclick="this.parentElement.remove()">×</button>
+    <div>
+        <label>Type:</label>
+        <select class="type">
+            <option value="straight">Straight</option>
+            <option value="square">Square</option>
+            <option value="curve">Curve</option>
+        </select>
+    </div>
+    <div>
+        <label>Pattern:</label>
+        <input class="pattern" type="text" value="00100" style="width:140px;">
+    </div>
+    <div>
+        <label>M1:</label>
+        <input class="m1-speed" type="range" min="0" max="100" value="0" style="width:300px;"
+            oninput="syncM1M2(this)">
+        <input class="m1-speed-number" type="number" min="0" max="100" value="0" style="width:60px;"
+            oninput="syncM1M2(this)">
+        <br>
+        <label>M2:</label>
+        <input class="m2-speed" type="range" min="0" max="100" value="0" style="width:300px;"
+            oninput="syncM2Number(this)">
+        <input class="m2-speed-number" type="number" min="0" max="100" value="0" style="width:60px;"
+            oninput="syncM2Range(this)">
+        <br>
+        <label>Đồng bộ</label>
+        <input type="checkbox" class="motor_sync" checked>
+    </div>
+    <div>
+        <label>Kp:</label>
+        <input class="pid-kp" type="range" min="0" max="100" step="1" value="0" style="width:180px;"
+            oninput="this.parentElement.querySelector('.pid-kp-number').value=this.value;">
+        <input class="pid-kp-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;"
+            oninput="this.parentElement.querySelector('.pid-kp').value=this.value;">
+        <br>
+        <label>Ki:</label>
+        <input class="pid-ki" type="range" min="0" max="100" step="1" value="0" style="width:180px;"
+            oninput="this.parentElement.querySelector('.pid-ki-number').value=this.value;">
+        <input class="pid-ki-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;"
+            oninput="this.parentElement.querySelector('.pid-ki').value=this.value;">
+        <br>
+        <label>Kd:</label>
+        <input class="pid-kd" type="range" min="0" max="100" step="1" value="0" style="width:180px;"
+            oninput="this.parentElement.querySelector('.pid-kd-number').value=this.value;">
+        <input class="pid-kd-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;"
+            oninput="this.parentElement.querySelector('.pid-kd').value=this.value;">
+    </div>
+    <div>
+        <label>Time:</label>
+        <input class="type-time" type="number" min="0" value="0" style="width:60px;">
+    </div>
+`;
+
+    container.appendChild(div);
+
+    // Hàm gửi cấu hình segment của card này
+    function sendSingleSegmentConfig(card) {
+        const typeValue = card.querySelector('.type').value;
+        const patternArray = card.querySelector('.pattern').value.split(',').map(s => s.trim());
+        const m1 = parseFloat(card.querySelector('.m1-speed').value);
+        const m2 = parseFloat(card.querySelector('.m2-speed').value);
+        const kp = parseFloat(card.querySelector('.pid-kp').value);
+        const ki = parseFloat(card.querySelector('.pid-ki').value);
+        const kd = parseFloat(card.querySelector('.pid-kd').value);
+        const time = parseInt(card.querySelector('.type-time').value, 10);
+        const stageIndex = parseInt(document.getElementById('stageIndex').value);
+
+        const segment = {
+            type: typeValue,
+            pattern: patternArray,
+            pid: [m1, m2, kp, ki, kd],
+            time: time
         };
-        ws.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                messageDispatcher(data);
-            } catch (e) {
-                console.error("Invalid JSON", e);
+        const stageConfigs = [
+            {
+                stage: stageIndex,
+                segments: [segment]
             }
-        };
-        ws.onerror = function(error) {
-            console.error('WebSocket error:', error);
-            updateWsStatus("Lỗi WebSocket!", "#aa0000");
-        };
-        ws.onclose = function() {
-            updateWsStatus("WebSocket đã đóng!", "#aa0000");
-            setTimeout(initWebSocket, 5000); // Retry connection after 5 seconds
-        };
+        ];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(stageConfigs));
+        }
     }
-    function ws_retryConnect() {
-        initWebSocket();
+
+    // Gửi ngay khi đổi Kp, Ki, Kd (range hoặc number)
+    div.querySelector('.pid-kp').addEventListener('change', function() {
+        sendSingleSegmentConfig(div);
+    });
+    div.querySelector('.pid-kp-number').addEventListener('change', function() {
+        sendSingleSegmentConfig(div);
+    });
+    div.querySelector('.pid-ki').addEventListener('change', function() {
+        sendSingleSegmentConfig(div);
+    });
+    div.querySelector('.pid-ki-number').addEventListener('change', function() {
+        sendSingleSegmentConfig(div);
+    });
+    div.querySelector('.pid-kd').addEventListener('change', function() {
+        sendSingleSegmentConfig(div);
+    });
+    div.querySelector('.pid-kd-number').addEventListener('change', function() {
+        sendSingleSegmentConfig(div);
+    });
+
+    // Khởi tạo đồng bộ ban đầu
+    const sync = div.querySelector('.motor_sync');
+    const m1Range = div.querySelector('.m1-speed');
+    const m1Number = div.querySelector('.m1-speed-number');
+    const m2Range = div.querySelector('.m2-speed');
+    const m2Number = div.querySelector('.m2-speed-number');
+
+    function setM2(val) {
+        m2Range.value = val;
+        m2Number.value = val;
     }
+
+    // Khi đổi M1, nếu sync thì đổi luôn M2 
+    function syncM1() {
+        if (sync.checked) setM2(m1Range.value);
+    }
+    m1Range.addEventListener('input', function() {
+        m1Number.value = this.value;
+        syncM1();
+    });
+    m1Number.addEventListener('input', function() {
+        m1Range.value = this.value;
+        syncM1();
+    });
+
+    // Khi đổi M2 range/number thì cập nhật lẫn nhau (nếu không sync)
+    m2Range.addEventListener('input', function() {
+        m2Number.value = this.value;
+    });
+    m2Number.addEventListener('input', function() {
+        m2Range.value = this.value;
+    });
+
+    // Khi bật/tắt sync, nếu bật thì cập nhật M2 = M1
+    sync.addEventListener('change', function() {
+        if (this.checked) setM2(m1Range.value);
+    });
+}
+
+// Các hàm dùng trong template string
+function syncM1M2(input) {
+    const card = input.closest('.segment-card');
+    const m1Range = card.querySelector('.m1-speed');
+    const m1Number = card.querySelector('.m1-speed-number');
+    const m2Range = card.querySelector('.m2-speed');
+    const m2Number = card.querySelector('.m2-speed-number');
+    const sync = card.querySelector('.motor_sync');
+    if (input.classList.contains('m1-speed')) m1Number.value = input.value;
+    if (input.classList.contains('m1-speed-number')) m1Range.value = input.value;
+    if (sync.checked) {
+        m2Range.value = input.value;
+        m2Number.value = input.value;
+    }
+}
+function syncM2Number(input) {
+    const card = input.closest('.segment-card');
+    card.querySelector('.m2-speed-number').value = input.value;
+}
+function syncM2Range(input) {
+    const card = input.closest('.segment-card');
+    card.querySelector('.m2-speed').value = input.value;
+}
+function saveSetting() {
+    const stageIndex = parseInt(document.getElementById('stageIndex').value);
+    const segments = [];
+    document.querySelectorAll('#segmentCards .segment-card').forEach(card => {
+        const typeValue = card.querySelector('.type').value;
+        const patternArray = card.querySelector('.pattern').value.split(',').map(s => s.trim());
+        const m1 = parseFloat(card.querySelector('.m1-speed').value);
+        const m2 = parseFloat(card.querySelector('.m2-speed').value);
+        const kp = parseFloat(card.querySelector('.pid-kp').value);
+        const ki = parseFloat(card.querySelector('.pid-ki').value);
+        const kd = parseFloat(card.querySelector('.pid-kd').value);
+        const time = parseInt(card.querySelector('.type-time').value, 10);
+        segments.push({
+            type: typeValue,
+            pattern: patternArray,
+            pid: [m1, m2, kp, ki, kd],
+            time: time
+        });
+    });
+    const stageConfigs = [
+        {
+            stage: stageIndex,
+            segments: segments
+        }
+    ];
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        console.log('Sending ', stageConfigs);
+        ws.send(JSON.stringify(stageConfigs));
+    } else {
+        alert('WebSocket chưa kết nối!');
+    }
+}
+
+window.onload = function() {
+    initWebSocket();
+    addSegmentCard(); // Thêm 1 card mặc định khi load trang
+};
 </script>
 </html>

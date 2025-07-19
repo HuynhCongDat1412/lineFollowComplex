@@ -26,6 +26,8 @@ uint8_t pattern[5] = {0};
 PIDController pid;
 uint8_t M1_speed = 0, M2_speed = 0;
 
+bool pidConfigJustUpdated = false;
+
 // ==== JSON CONFIG ====
 StaticJsonDocument<2048> pidConfig;
 const char* defaultConfig = R"([
@@ -158,7 +160,8 @@ void setPIDFromType(const char* type, JsonDocument& doc) {
             JsonArray pidArray = segment["pid"];
             M1_speed = pidArray[0].as<int>();
             M2_speed = pidArray[1].as<int>();
-            int16_t maxPidOutput = max(M1_speed, M2_speed);
+            // int16_t maxPidOutput = max(M1_speed, M2_speed);
+            int16_t maxPidOutput = 100;
             float Kp = pidArray[2];
             float Ki = pidArray[3];
             float Kd = pidArray[4];
@@ -202,7 +205,6 @@ void driveMotors(int baseSpeedLeft, int baseSpeedRight, float correction) {
     setMotor(1, BIN2, BIN1, map(right, 0, 100, 0, 255));
 }
 
-bool pidConfigJustUpdated = false;
 // Xử lý tin nhắn WebSocket
 void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
     switch(type) {
@@ -239,6 +241,7 @@ void sendStatusPacket(const uint8_t* pattern, const char* type, float lineError,
     msg += "]";
 
     webSocketServer.broadcastTXT(msg);
+    // Serial.println("Status packet sent: " + msg);
 }
 String currentType = "unknown";
 String lastDetectedType = "unknown";
@@ -313,19 +316,31 @@ void loop() {
         lastControlTime = millis();
         getLinePattern(pattern);
 
-        // Chỉ cho phép đổi type khi đã hết thời gian segmentTime
-        if ((millis() - segmentStartTime >= segmentTime)) {
-            uint16_t newSegmentTime = 0;
-            const char* type = bestMatchType(pattern, pidConfig, newSegmentTime);
-            if (strcmp(currentType, type) != 0 || segmentTime != newSegmentTime) {
-                strcpy(currentType, type);
-                segmentTime = newSegmentTime;
-                segmentStartTime = millis();
-                setPIDFromType(type, pidConfig);
-                PID_reset(&pid);
-            }
+        bool shouldUpdatePID = false;
+        uint16_t newSegmentTime = 0;
+        const char* type = bestMatchType(pattern, pidConfig, newSegmentTime);
+
+        // Ưu tiên cập nhật nếu vừa nhận cấu hình mới
+        if (pidConfigJustUpdated) {
+            shouldUpdatePID = true;
+            pidConfigJustUpdated = false;
         }
-        // Nếu chưa hết thời gian, giữ nguyên currentType
+        // Hoặc nếu hết thời gian segment hoặc type mới
+        else if ((millis() - segmentStartTime >= segmentTime) &&
+                 (strcmp(currentType, type) != 0 || segmentTime != newSegmentTime)) {
+            shouldUpdatePID = true;
+        }
+
+        if (shouldUpdatePID) {
+            Serial.print("[Segment] Detected type: ");
+            Serial.println(type);
+
+            strcpy(currentType, type);
+            segmentTime = newSegmentTime;
+            segmentStartTime = millis();
+            setPIDFromType(type, pidConfig);
+            PID_reset(&pid);
+        }
 
         float error = computeLineError(pattern);
         float correction = PID_compute(&pid, 0.0, error);
