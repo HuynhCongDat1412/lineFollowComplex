@@ -9,8 +9,6 @@
             width: 100%;
             max-width: 1200px;
             padding: 20px;
-            /* display: flex;
-            flex-wrap: wrap; */
         }
         .segment-card {
             border: 1px solid #aaa;
@@ -40,29 +38,25 @@
         .segment-card input, .segment-card select {
             margin-bottom: 6px;
         }
-
         .col {
             display: flex;
             flex-direction: column;
             gap: 8px;
         }
-
         .row {
             display: flex;
             flex-direction: row;
             gap: 16px;
         }
-
         .col-3 {
             flex: 0 0 25%;
-
         }
     </style>
 </head>
 <body>
     <h1>MY COOLEST CAR</h1>
     <div>
-        <input type="text" id="wsServerIP" value="192.168.1.225">
+        <input type="text" id="wsServerIP" value="192.168.87.113">
         <div id="wsStatus" style="margin-bottom:8px;color:#007700;font-weight:bold;">
             Đang kiểm tra trạng thái WebSocket...
         </div>
@@ -83,8 +77,7 @@
                 <input type="checkbox" id="motor_sync" checked>        
             </div>
         </div>
-            <input type="button" style="color: rgb(248, 253, 248); background-color: rgb(6, 137, 6); margin: 10px;" onclick="runMotor()" value="RUN">
-        </div>
+        <input type="button" style="color: rgb(248, 253, 248); background-color: rgb(6, 137, 6); margin: 10px;" onclick="runMotor()" value="RUN">
         <div>
             <h2>Robot Status</h2>
             <div id="robotStatus">
@@ -126,7 +119,6 @@ function runMotor() {
             ]
         }
     ];
-    console.log('Stage configs:', JSON.stringify(stageConfigs, null, 2));
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(stageConfigs));
     } else {
@@ -202,14 +194,14 @@ function initWebSocket() {
     };
     ws.onclose = function() {
         updateWsStatus("WebSocket đã đóng!", "#aa0000");
-        setTimeout(initWebSocket, 5000); // Retry connection after 5 seconds
+        setTimeout(initWebSocket, 5000);
     };
 }
 function ws_retryConnect() {
     initWebSocket();
 }
 
-function addSegmentCard() {
+function addSegmentCard(type = "square", pattern = "10000", time = 1) {
     const container = document.getElementById('segmentCards');
     const div = document.createElement('div');
     div.className = 'segment-card col-3';
@@ -221,117 +213,62 @@ function addSegmentCard() {
             <option value="straight">Straight</option>
             <option value="square">Square</option>
             <option value="curve">Curve</option>
+            <option value="gap">Gap</option>
         </select>
     </div>
     <div>
         <label>Pattern:</label>
-        <input class="pattern" type="text" value="00100" style="width:140px;">
+        <input class="pattern" type="text" value="${pattern}" style="width:140px;">
     </div>
     <div>
         <label>M1:</label>
-        <input class="m1-speed" type="range" min="0" max="100" value="0" style="width:300px;"
-            oninput="syncM1M2(this)">
-        <input class="m1-speed-number" type="number" min="0" max="100" value="0" style="width:60px;"
-            oninput="syncM1M2(this)">
+        <input class="m1-speed" type="range" min="0" max="100" value="0" style="width:300px;" oninput="syncM1M2(this)">
+        <input class="m1-speed-number" type="number" min="0" max="100" value="0" style="width:60px;" oninput="syncM1M2(this)">
         <br>
         <label>M2:</label>
-        <input class="m2-speed" type="range" min="0" max="100" value="0" style="width:300px;"
-            oninput="syncM2Number(this)">
-        <input class="m2-speed-number" type="number" min="0" max="100" value="0" style="width:60px;"
-            oninput="syncM2Range(this)">
+        <input class="m2-speed" type="range" min="0" max="100" value="0" style="width:300px;" oninput="syncM2Number(this)">
+        <input class="m2-speed-number" type="number" min="0" max="100" value="0" style="width:60px;" oninput="syncM2Range(this)">
         <br>
         <label>Đồng bộ</label>
         <input type="checkbox" class="motor_sync" checked>
     </div>
     <div>
         <label>Kp:</label>
-        <input class="pid-kp" type="range" min="0" max="100" step="1" value="0" style="width:180px;"
-            oninput="this.parentElement.querySelector('.pid-kp-number').value=this.value;">
-        <input class="pid-kp-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;"
-            oninput="this.parentElement.querySelector('.pid-kp').value=this.value;">
+        <input class="pid-kp" type="range" min="0" max="100" step="1" value="0" style="width:180px;" oninput="this.parentElement.querySelector('.pid-kp-number').value=this.value;">
+        <input class="pid-kp-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;" oninput="this.parentElement.querySelector('.pid-kp').value=this.value;">
         <br>
         <label>Ki:</label>
-        <input class="pid-ki" type="range" min="0" max="100" step="1" value="0" style="width:180px;"
-            oninput="this.parentElement.querySelector('.pid-ki-number').value=this.value;">
-        <input class="pid-ki-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;"
-            oninput="this.parentElement.querySelector('.pid-ki').value=this.value;">
+        <input class="pid-ki" type="range" min="0" max="100" step="1" value="0" style="width:180px;" oninput="this.parentElement.querySelector('.pid-ki-number').value=this.value;">
+        <input class="pid-ki-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;" oninput="this.parentElement.querySelector('.pid-ki').value=this.value;">
         <br>
         <label>Kd:</label>
-        <input class="pid-kd" type="range" min="0" max="100" step="1" value="0" style="width:180px;"
-            oninput="this.parentElement.querySelector('.pid-kd-number').value=this.value;">
-        <input class="pid-kd-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;"
-            oninput="this.parentElement.querySelector('.pid-kd').value=this.value;">
+        <input class="pid-kd" type="range" min="0" max="100" step="1" value="0" style="width:180px;" oninput="this.parentElement.querySelector('.pid-kd-number').value=this.value;">
+        <input class="pid-kd-number" type="number" min="0" max="100" step="1" value="0" style="width:60px;" oninput="this.parentElement.querySelector('.pid-kd').value=this.value;">
     </div>
     <div>
         <label>Time:</label>
-        <input class="type-time" type="number" min="0" value="0" style="width:60px;">
+        <input class="type-time" type="number" min="0" value="${time}" style="width:60px;">
     </div>
-`;
-
+    <div>
+        <label>Invert Line</label>
+        <input type="checkbox" class="invert-line">
+    </div>
+    `;
     container.appendChild(div);
 
-    // Hàm gửi cấu hình segment của card này
-    function sendSingleSegmentConfig(card) {
-        const typeValue = card.querySelector('.type').value;
-        const patternArray = card.querySelector('.pattern').value.split(',').map(s => s.trim());
-        const m1 = parseFloat(card.querySelector('.m1-speed').value);
-        const m2 = parseFloat(card.querySelector('.m2-speed').value);
-        const kp = parseFloat(card.querySelector('.pid-kp').value);
-        const ki = parseFloat(card.querySelector('.pid-ki').value);
-        const kd = parseFloat(card.querySelector('.pid-kd').value);
-        const time = parseInt(card.querySelector('.type-time').value, 10);
-        const stageIndex = parseInt(document.getElementById('stageIndex').value);
+    // Set type mặc định
+    div.querySelector('.type').value = type;
 
-        const segment = {
-            type: typeValue,
-            pattern: patternArray,
-            pid: [m1, m2, kp, ki, kd],
-            time: time
-        };
-        const stageConfigs = [
-            {
-                stage: stageIndex,
-                segments: [segment]
-            }
-        ];
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify(stageConfigs));
-        }
-    }
-
-    // Gửi ngay khi đổi Kp, Ki, Kd (range hoặc number)
-    div.querySelector('.pid-kp').addEventListener('change', function() {
-        sendSingleSegmentConfig(div);
-    });
-    div.querySelector('.pid-kp-number').addEventListener('change', function() {
-        sendSingleSegmentConfig(div);
-    });
-    div.querySelector('.pid-ki').addEventListener('change', function() {
-        sendSingleSegmentConfig(div);
-    });
-    div.querySelector('.pid-ki-number').addEventListener('change', function() {
-        sendSingleSegmentConfig(div);
-    });
-    div.querySelector('.pid-kd').addEventListener('change', function() {
-        sendSingleSegmentConfig(div);
-    });
-    div.querySelector('.pid-kd-number').addEventListener('change', function() {
-        sendSingleSegmentConfig(div);
-    });
-
-    // Khởi tạo đồng bộ ban đầu
+    // Đồng bộ M1/M2
     const sync = div.querySelector('.motor_sync');
     const m1Range = div.querySelector('.m1-speed');
     const m1Number = div.querySelector('.m1-speed-number');
     const m2Range = div.querySelector('.m2-speed');
     const m2Number = div.querySelector('.m2-speed-number');
-
     function setM2(val) {
         m2Range.value = val;
         m2Number.value = val;
     }
-
-    // Khi đổi M1, nếu sync thì đổi luôn M2 
     function syncM1() {
         if (sync.checked) setM2(m1Range.value);
     }
@@ -343,22 +280,17 @@ function addSegmentCard() {
         m1Range.value = this.value;
         syncM1();
     });
-
-    // Khi đổi M2 range/number thì cập nhật lẫn nhau (nếu không sync)
     m2Range.addEventListener('input', function() {
         m2Number.value = this.value;
     });
     m2Number.addEventListener('input', function() {
         m2Range.value = this.value;
     });
-
-    // Khi bật/tắt sync, nếu bật thì cập nhật M2 = M1
     sync.addEventListener('change', function() {
         if (this.checked) setM2(m1Range.value);
     });
 }
 
-// Các hàm dùng trong template string
 function syncM1M2(input) {
     const card = input.closest('.segment-card');
     const m1Range = card.querySelector('.m1-speed');
@@ -393,11 +325,20 @@ function saveSetting() {
         const ki = parseFloat(card.querySelector('.pid-ki').value);
         const kd = parseFloat(card.querySelector('.pid-kd').value);
         const time = parseInt(card.querySelector('.type-time').value, 10);
+        const invert = card.querySelector('.invert-line').checked;
+
+        if (invert) {
+            const tmp = m1;
+            m1 = m2;
+            m2 = tmp;
+        }
+        
         segments.push({
             type: typeValue,
             pattern: patternArray,
             pid: [m1, m2, kp, ki, kd],
-            time: time
+            time: time,
+            invert: invert
         });
     });
     const stageConfigs = [
@@ -406,9 +347,7 @@ function saveSetting() {
             segments: segments
         }
     ];
-
     if (ws && ws.readyState === WebSocket.OPEN) {
-        console.log('Sending ', stageConfigs);
         ws.send(JSON.stringify(stageConfigs));
     } else {
         alert('WebSocket chưa kết nối!');
@@ -417,7 +356,9 @@ function saveSetting() {
 
 window.onload = function() {
     initWebSocket();
-    addSegmentCard(); // Thêm 1 card mặc định khi load trang
+    addSegmentCard("straight", "00100", 0); // Thêm card mặc định: straight, 00100, 1
+
+    addSegmentCard("square", "10000,00001", 0);   // Thêm card mặc định: square, 10000, 1
 };
 </script>
 </html>

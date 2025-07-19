@@ -129,3 +129,6 @@ const uint8_t sensors[5] = {35, 32, 33, 25, 26};
     {"value":10}
   ]
   }
+  // Tính sai số line theo trọng số
+//-2 bánh trái quay
+// 2 bánh phải quay

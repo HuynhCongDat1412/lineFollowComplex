@@ -7,8 +7,8 @@
 #include <littleFS.h>
 
 // ==== WIFI CONFIG ====
-const char* ssid = "DAT PHUONG";
-const char* password = "19201974";
+const char* ssid = "AndroidAP";
+const char* password = "12345678";
 
 // ==== SERVER ====
 WebServer server(80);
@@ -72,15 +72,22 @@ bool loadFromFS(const char* filename, JsonDocument& doc) {
     }
     return true;
 }
-    
+
+bool invertLine = false; // trường hợp line đen nền trắng
 // Đọc trạng thái line sensor vào mảng pattern
 void getLinePattern(uint8_t pattern[5]) {
     bool hasLine = false;
     for (int i = 0; i < 5; i++) {
-        pattern[i] = (digitalRead(sensors[i]) == LOW) ? 1 : 0;
-        if (pattern[i] == 1) {
+        uint8_t val = (digitalRead(sensors[i]) == LOW) ? 1 : 0;
+        if (invertLine) {
+                val = 1 - val;
+            }
+        pattern[i] = val;
+       
+         if (pattern[i] == 1) {
             hasLine = true;
         }
+        
     }
     if (hasLine) {
         for (int i = 0; i < 5; i++) lastValidPattern[i] = pattern[i];
@@ -151,9 +158,13 @@ const char* detectSegmentType(const uint8_t* pattern, JsonDocument& doc) {
     return "unknown";
 }
 
-
+bool isSegmentGap = false;
 // Cập nhật PID và tốc độ từ cấu hình JSON theo loại segment
 void setPIDFromType(const char* type, JsonDocument& doc) {
+    if (strcmp(type, "gap") == 0) {
+        isSegmentGap = true;
+        
+    }
     JsonArray segments = doc[0]["segments"];
     for (JsonObject segment : segments) {
         if (strcmp(segment["type"], type) == 0) {
@@ -168,11 +179,25 @@ void setPIDFromType(const char* type, JsonDocument& doc) {
             PID_init(&pid, Kp, Ki, Kd, -maxPidOutput, maxPidOutput);
             break;
         }
+        if (segment.containsKey("invert")) {
+            invertLine = segment["invert"];
+        } else {
+            invertLine = false;
+        }
+        // 
     }
 }
 
+enum priorTurnDirection {
+    PRIOR_LEFT,
+    PRIOR_RIGHT,
+    PRIOR_NONE
+};
+
+priorTurnDirection priorTurn = PRIOR_NONE;
 // Tính sai số line theo trọng số
 float computeLineError(const uint8_t pattern[5]) {
+    
     const int weights[5] = {-2, -1, 0, 1, 2};
     int sum = 0, count = 0;
     for (int i = 0; i < 5; i++) {
@@ -181,7 +206,38 @@ float computeLineError(const uint8_t pattern[5]) {
             count++;
         }
     }
-    if (count == 0) return 0;
+    if (isSegmentGap) {
+        // Quẹo phải mạnh nếu thấy line bên phải
+        if ((pattern[0] == 0 && pattern[4] == 1) && (priorTurn != PRIOR_LEFT)) {
+            priorTurn = PRIOR_RIGHT;
+            Serial.println("Prior turn right");
+            webSocketServer.broadcastTXT("Prior turn right");
+            
+            return -2.0;
+        }
+        // Quẹo trái mạnh nếu thấy line bên trái
+        else if (pattern[0] == 1 && pattern[4] == 0 && (priorTurn != PRIOR_RIGHT)) {
+            Serial.println("Prior turn left");
+            webSocketServer.broadcastTXT("Prior turn left");
+
+            priorTurn = PRIOR_LEFT;
+            return 2.0;
+        }
+    }
+    if (count == 0) {
+        if(priorTurn == PRIOR_LEFT) {
+            Serial.println("Turn LEFT");
+            webSocketServer.broadcastTXT("Turn LEFT");
+
+            return 2.0; // Quẹo trái mạnh nếu không thấy line
+        } else if (priorTurn == PRIOR_RIGHT) {
+            Serial.println("Turn RIGHT");
+            webSocketServer.broadcastTXT("Turn RIGHT");
+
+            return -2.0; // Quẹo phải mạnh nếu không thấy line
+        }
+        return 0;
+    }
     return (float)sum / count;
 }
 
