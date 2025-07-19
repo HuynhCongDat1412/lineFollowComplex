@@ -7,8 +7,10 @@
 #include <littleFS.h>
 
 // ==== WIFI CONFIG ====
-const char* ssid = "AndroidAP";
-const char* password = "12345678";
+// const char* ssid = "AndroidAP";
+// const char* password = "12345678";
+const char* ssid = "DAT PHUONG";
+const char* password = "19201974";
 
 // ==== SERVER ====
 WebServer server(80);
@@ -28,6 +30,12 @@ uint8_t M1_speed = 0, M2_speed = 0;
 
 bool pidConfigJustUpdated = false;
 
+String lastType = "unknown";
+uint16_t lastSegmentTime = 0;
+bool inSegmentTiming = false;
+unsigned long segmentStartTime = 0;
+uint16_t segmentTime = 0;
+
 // ==== JSON CONFIG ====
 StaticJsonDocument<2048> pidConfig;
 const char* defaultConfig = R"([
@@ -44,7 +52,8 @@ const char* defaultConfig = R"([
 ])";
 
 uint8_t lastValidPattern[5] = {0,0,0,0,0};
-
+void handleJsonMessage(const String& msg);
+void handleJsonMessage(const String& msg) ;
 
 void saveToFS(const char* filename, const JsonDocument& doc) {
     File file = LittleFS.open(filename, "w");
@@ -126,18 +135,28 @@ const char* bestMatchType(const uint8_t* input, JsonDocument& doc, uint16_t& seg
         JsonArray patterns = segment["pattern"];
         for (const char* pat : patterns) {
             int score = scoreMatch(input, pat);
+            // Serial.print("Pattern: ");
+            // for (int i = 0; i < 5; i++) Serial.print(input[i]);
+            // Serial.print(" vs ");
+            // Serial.print(pat);
+            // Serial.print(" | Score: ");
+            // Serial.println(score);
             if (score > bestScore) {
                 if (segment.containsKey("time")) {
                     segmentTime = segment["time"];
                     segmentTime *= 1000;
                 } else {
-                    segmentTime = 0; // Không có thời gian, đặt về 0
+                    segmentTime = 0;
                 }
                 bestScore = score;
                 strcpy(bestType, type);
             }
+//             Serial.print("Pattern: ");
+// for (int i = 0; i < 5; i++) Serial.print(pattern[i]);
+// Serial.print(" | bestMatchType: "); Serial.println(type);
         }
     }
+    // Serial.print("Best type: "); Serial.println(bestType);
     return bestType;
 }
 
@@ -161,30 +180,24 @@ const char* detectSegmentType(const uint8_t* pattern, JsonDocument& doc) {
 bool isSegmentGap = false;
 // Cập nhật PID và tốc độ từ cấu hình JSON theo loại segment
 void setPIDFromType(const char* type, JsonDocument& doc) {
-    if (strcmp(type, "gap") == 0) {
-        isSegmentGap = true;
-        
-    }
+    isSegmentGap = (strcmp(type, "gap") == 0);
+
     JsonArray segments = doc[0]["segments"];
     for (JsonObject segment : segments) {
+        if (!segment.containsKey("type")) continue;
         if (strcmp(segment["type"], type) == 0) {
-            JsonArray pidArray = segment["pid"];
-            M1_speed = pidArray[0].as<int>();
-            M2_speed = pidArray[1].as<int>();
-            // int16_t maxPidOutput = max(M1_speed, M2_speed);
-            int16_t maxPidOutput = 100;
-            float Kp = pidArray[2];
-            float Ki = pidArray[3];
-            float Kd = pidArray[4];
-            PID_init(&pid, Kp, Ki, Kd, -maxPidOutput, maxPidOutput);
+            if (segment.containsKey("pid")) {
+                JsonArray pidArray = segment["pid"];
+                M1_speed = pidArray[0].as<int>();
+                M2_speed = pidArray[1].as<int>();
+                int16_t maxPidOutput = 100;
+                float Kp = pidArray[2];
+                float Ki = pidArray[3];
+                float Kd = pidArray[4];
+                PID_init(&pid, Kp, Ki, Kd, -maxPidOutput, maxPidOutput);
+            }
             break;
         }
-        if (segment.containsKey("invert")) {
-            invertLine = segment["invert"];
-        } else {
-            invertLine = false;
-        }
-        // 
     }
 }
 
@@ -266,16 +279,7 @@ void handleWebSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t 
     switch(type) {
         case WStype_TEXT: {
             Serial.printf("[%u] Received text: %s\n", num, payload);
-            DeserializationError error = deserializeJson(pidConfig, (char*)payload);
-            if (error) {
-                Serial.print("JSON parse error: ");
-                Serial.println(error.c_str());
-            } else {
-                Serial.println("------------------------------------------------------------");
-                saveToFS("/pid_config.json", pidConfig);
-                pidConfigJustUpdated = true; // Đánh dấu để cập nhật lại PID
-                Serial.println("PID config updated from WebSocket!");
-            }
+            handleJsonMessage(String((char*)payload));
             webSocketServer.sendTXT(num, payload, length); // Echo lại cho client
             break;
         }
@@ -312,37 +316,150 @@ void updateSegmentType(const char* newType, JsonDocument& doc) {
   } else {
     stableCount = 1;
     lastDetectedType = newType;
-  }
-
-  if ((millis() - lastTypeChange > minTypeDuration) && (stableCount >= stableThreshold)) {
-    if (currentType != newType) {
+    // Nếu currentType đang là "unknown" và vừa phát hiện type mới, cập nhật luôn
+    if (currentType == "unknown" && strcmp(newType, "unknown") != 0) {
       currentType = newType;
       lastTypeChange = millis();
       Serial.print("[Segment] Type changed to: ");
       Serial.println(currentType);
-      setPIDFromType(newType, doc);  // Truyền đúng kiểu JsonDocument&
+      setPIDFromType(newType, doc);
       PID_reset(&pid);
     }
   }
+
+  if ((millis() - lastTypeChange > minTypeDuration) && (stableCount >= stableThreshold)) {
+    if (currentType != newType) {
+        currentType = newType;
+        lastTypeChange = millis();
+        Serial.print("[Segment] Type changed to: ");
+        Serial.println(currentType);
+        setPIDFromType(newType, doc);
+        PID_reset(&pid);
+
+        // Cập nhật timing đúng lúc đổi type
+        uint16_t newSegmentTime = 0;
+        bestMatchType(lastValidPattern, doc, newSegmentTime); // lấy lại segmentTime cho currentType
+        segmentStartTime = millis();
+        segmentTime = newSegmentTime;
+        lastType = currentType;
+        lastSegmentTime = newSegmentTime;
+        inSegmentTiming = (segmentTime > 0);
+    }
+}
 }
 
+void handleJsonMessage(const String& msg) {
+    StaticJsonDocument<2048> doc;
+    DeserializationError error = deserializeJson(doc, msg);
+    if (error) {
+        Serial.println("JSON parse error");
+        return;
+    }
+    String cmd = doc["cmd"] | "";
+    if (cmd == "pidConfig") {
+        currentType = "unknown"; // Reset type khi nhận cấu hình mới
+        lastType = "unknown";
+        lastSegmentTime = 0;
+        inSegmentTiming = false;
+        segmentStartTime = 0;
+        segmentTime = 0;
+        String configStr = doc["value"] | "";
+        DeserializationError err2 = deserializeJson(pidConfig, configStr);
+        if (!err2) {
+            saveToFS("/pid_config.json", pidConfig);
+
+            // Ưu tiên cập nhật PID/tốc độ cho type đầu tiên trong cấu hình mới (nếu muốn robot chạy luôn)
+            JsonArray segments = pidConfig[0]["segments"];
+            if (segments.size() > 0) {
+                const char* firstType = segments[0]["type"];
+                setPIDFromType(firstType, pidConfig);
+                currentType = firstType;
+                Serial.print("[Config] Set PID for type: ");
+                Serial.println(firstType);
+            } else {
+                setPIDFromType("unknown", pidConfig);
+            }
+
+            Serial.println("OK");
+        } else {
+            Serial.println("ERR");
+        }
+    }
+    else if (cmd == "loadFile") {
+    String tenfile = doc["value"]["tenfile"] | "";
+    if (tenfile.length() > 0) {
+        if (loadFromFS(("/" + tenfile).c_str(), pidConfig)) {
+            setPIDFromType(currentType.c_str(), pidConfig);
+            Serial.print("PID Config: ");
+            serializeJson(pidConfig, Serial);
+            Serial.println();
+            Serial.println("OK");
+        } else {
+            Serial.println("ERR");
+        }
+    }
+}
+    else if (cmd == "saveConfig") {
+        String tenfile = doc["value"] | "";
+        File f = LittleFS.open(("/" + tenfile).c_str(), "w");
+        if (f) {
+            serializeJson(pidConfig, f);
+            Serial.println();
+            f.close();
+            Serial.println("OK");
+            Serial.println("Saved to " + tenfile);
+        } else {
+            Serial.println("ERR");
+        }
+    }
+    else if (cmd == "WifiConnect") {
+    String ssid = doc["value"]["ssid"] | "";
+    String pass = doc["value"]["pass"] | "";
+    if (ssid.length() > 0) {
+        Serial.println("WiFi reconnecting to: " + ssid);
+        WiFi.disconnect();
+        WiFi.begin(ssid.c_str(), pass.c_str());
+        unsigned long start = millis();
+        while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+            delay(500);
+            Serial.print(".");
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
+        } else {
+            Serial.println("\nWiFi connect failed!");
+        }
+    }
+}
+}
 
 
 void setup() {
     Serial.begin(115200);
-    WiFi.begin(ssid, password);
     LittleFS.begin();
     if (!loadFromFS("/pid_config.json", pidConfig)) {
         deserializeJson(pidConfig, defaultConfig);
     }
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500); Serial.print(".");
+
+    // Kết nối WiFi mặc định (nếu muốn)
+    WiFi.begin(ssid, password);
+    Serial.print("Connecting to WiFi");
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+        delay(500);
+        Serial.print(".");
     }
-    Serial.println("\nWiFi connected");
-    Serial.println(WiFi.localIP());
-    server.begin();
-    webSocketServer.begin();
-    webSocketServer.onEvent(handleWebSocketEvent);
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi connected");
+        Serial.println(WiFi.localIP());
+        server.begin();
+        webSocketServer.begin();
+        webSocketServer.onEvent(handleWebSocketEvent);
+    } else {
+        Serial.println("\nWiFi connect failed!");
+        // Không khởi động server khi chưa có WiFi
+    }
+
     // Setup pins
     pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT); pinMode(PWMA, OUTPUT);
     pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT); pinMode(PWMB, OUTPUT);
@@ -360,43 +477,64 @@ void setup() {
 
 static unsigned long fregControl = 10;
 
+void handleSerialCommand() {
+    static String inputBuffer = "";
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            if (inputBuffer.length() > 0) {
+                Serial.println("Serial received: " + inputBuffer);
+                handleJsonMessage(inputBuffer);
+                inputBuffer = "";
+            }
+        } else {
+            inputBuffer += c;
+        }
+    }
+}
+
+
+void handleSegmentTiming(const uint8_t* pattern, JsonDocument& doc) {
+// filepath: d:\hoc tap_2\lineFollowComplex\src\main.cpp
+    uint16_t newSegmentTime = 0;
+    const char* type = bestMatchType(pattern, doc, newSegmentTime);
+
+    bool isCurrentUnknown = (currentType == "unknown");
+
+    // Nếu hết thời gian giữ segment thì cho phép dò lại type
+    if (segmentTime > 0 && millis() - segmentStartTime >= segmentTime) {
+        inSegmentTiming = false;
+    }
+
+    // Nếu vẫn đang trong thời gian giữ và không phải "unknown" thì bỏ qua
+    if (inSegmentTiming && !isCurrentUnknown) {
+        Serial.println("Still in segment timing, skipping update");
+        return;
+    }
+
+    // Luôn gọi updateSegmentType để debounce hoạt động đúng
+    updateSegmentType(type, doc);
+
+}
 
 void loop() {
+    handleSerialCommand();
     webSocketServer.loop();
-    static uint16_t lastControlTime = millis();
-    static char currentType[16] = "unknown";
-    static uint16_t segmentStartTime = 0;
-    static uint16_t segmentTime = 0;
+
+    static unsigned long lastControlTime = millis();
 
     if (millis() - lastControlTime >= fregControl) {
         lastControlTime = millis();
         getLinePattern(pattern);
 
-        bool shouldUpdatePID = false;
-        uint16_t newSegmentTime = 0;
-        const char* type = bestMatchType(pattern, pidConfig, newSegmentTime);
-
         // Ưu tiên cập nhật nếu vừa nhận cấu hình mới
         if (pidConfigJustUpdated) {
-            shouldUpdatePID = true;
+            setPIDFromType(currentType.c_str(), pidConfig);
             pidConfigJustUpdated = false;
         }
-        // Hoặc nếu hết thời gian segment hoặc type mới
-        else if ((millis() - segmentStartTime >= segmentTime) &&
-                 (strcmp(currentType, type) != 0 || segmentTime != newSegmentTime)) {
-            shouldUpdatePID = true;
-        }
 
-        if (shouldUpdatePID) {
-            Serial.print("[Segment] Detected type: ");
-            Serial.println(type);
-
-            strcpy(currentType, type);
-            segmentTime = newSegmentTime;
-            segmentStartTime = millis();
-            setPIDFromType(type, pidConfig);
-            PID_reset(&pid);
-        }
+        // Gọi hàm quản lý segment timing
+        handleSegmentTiming(pattern, pidConfig);
 
         float error = computeLineError(pattern);
         float correction = PID_compute(&pid, 0.0, error);
@@ -404,8 +542,8 @@ void loop() {
     }
 
     static unsigned long lastStatusSend = 0;
-    if (millis() - lastStatusSend >= 2000) {
-        lastStatusSend = millis();
-        sendStatusPacket(pattern, currentType, computeLineError(pattern), M1_speed, M2_speed);
-    }
+    // if (millis() - lastStatusSend >= 200) {
+    //     lastStatusSend = millis();
+        sendStatusPacket(pattern, currentType.c_str(), computeLineError(pattern), M1_speed, M2_speed);
+    // }
 }

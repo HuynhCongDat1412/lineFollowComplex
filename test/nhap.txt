@@ -132,3 +132,9 @@ const uint8_t sensors[5] = {35, 32, 33, 25, 26};
   // Tính sai số line theo trọng số
 //-2 bánh trái quay
 // 2 bánh phải quay
+
+{   "cmd": "WifiConnect",   "value": { "ssid": "DAT PHUONG", "pass": "19201974" } }
+
+{"cmd":"pidConfig","value":"[{\"stage\":0,\"segments\":[{\"type\":\"straight\",\"pattern\":[\"00100\"],\"pid\":[19,19,21,0,1],\"time\":0},{\"type\":\"square\",\"pattern\":[\"10000\",\"00001\"],\"pid\":[28,28,16,0,1],\"time\":30}]}]"}
+
+{"cmd": "loadFile", "value": {"tenfile": "pid_config.json"}}
